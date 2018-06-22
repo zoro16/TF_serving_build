@@ -1,0 +1,11 @@
+version: '3.5'
+
+services:
+  serving:
+    image: zoro1666/serving
+    ports:
+      - 8888:8888
+      - 9000:9000
+    volumes:
+      - .:/tensorflow-serving
+    # command: /bin/sh -c

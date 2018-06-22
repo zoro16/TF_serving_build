@@ -21,6 +21,8 @@ RUN apt-get update && apt-get install -y \
         zip \
         zlib1g-dev \
         libcurl3-dev \
+        openjdk-8-jdk\
+        openjdk-8-jre-headless \
         wget && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
@@ -38,7 +40,6 @@ RUN apt-get update && apt-get install -y \
 RUN pip install --upgrade pip
 RUN pip install numpy \
     tensorflow \
-    tensorflow-hub \
     mock \
     grpcio
 
@@ -80,3 +81,4 @@ RUN bazel build  --local_resources 5000,1.0,1.0 -c opt --color=yes --curses=yes 
 
 ## Cleanup ##
 RUN apt-get clean && apt-get autoclean && apt-get autoremove
+
