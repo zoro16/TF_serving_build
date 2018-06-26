@@ -1,4 +1,4 @@
-FROM ubuntu:16.04
+FROM nvidia/cuda:9.0-cudnn7-devel-ubuntu16.04
 
 RUN apt-get update && apt-get install -y \
         automake \
@@ -42,7 +42,7 @@ RUN echo "startup --batch" >>/etc/bazel.bazelrc
 RUN echo "build --spawn_strategy=standalone --genrule_strategy=standalone" \
     >>/etc/bazel.bazelrc
 # Install a recent bazel release.
-ENV BAZEL_VERSION 0.11.1
+ENV BAZEL_VERSION 0.10.0
 WORKDIR /
 RUN mkdir /bazel && \
     cd /bazel && \
@@ -53,20 +53,55 @@ RUN mkdir /bazel && \
     cd / && \
     rm -f /bazel/bazel-$BAZEL_VERSION-installer-linux-x86_64.sh
 
+
+# Build TensorFlow with the CUDA configuration
+ENV CI_BUILD_PYTHON python
+ENV LD_LIBRARY_PATH /usr/local/cuda/extras/CUPTI/lib64:$LD_LIBRARY_PATH
+ENV TF_NEED_CUDA 1
+ENV TF_CUDA_COMPUTE_CAPABILITIES=3.0,3.5,5.2,6.0,6.1,7.0
+ENV TF_CUDA_VERSION=9.0
+ENV TF_CUDNN_VERSION=7
+
+# Fix paths so that CUDNN can be found: https://github.com/tensorflow/tensorflow/issues/8264
+
+WORKDIR /
+RUN mkdir /usr/lib/x86_64-linux-gnu/include/ && \
+  ln -s /usr/lib/x86_64-linux-gnu/include/cudnn.h /usr/lib/x86_64-linux-gnu/include/cudnn.h && \
+  ln -s /usr/include/cudnn.h /usr/local/cuda/include/cudnn.h && \
+  ln -s /usr/lib/x86_64-linux-gnu/libcudnn.so /usr/local/cuda/lib64/libcudnn.so && \
+  ln -s /usr/lib/x86_64-linux-gnu/libcudnn.so.$TF_CUDNN_VERSION /usr/local/cuda/lib64/libcudnn.so.$TF_CUDNN_VERSION
+
+
+# Fix paths so that NCCL can be found
+ENV TF_NCCL_VERSION=2.2.12
+ENV NCCL_INSTALL_PATH=/usr/lib/nccl/
+
+WORKDIR /
+RUN mkdir /usr/lib/nccl && \
+  mkdir /usr/lib/nccl/include/ && \
+  mkdir /usr/lib/nccl/lib/ && \
+  ln -s /usr/include/nccl.h /usr/lib/nccl/include/nccl.h && \
+  ln -s /usr/lib/x86_64-linux-gnu/libnccl.so /usr/lib/nccl/lib/libnccl.so && \
+  ln -s /usr/lib/x86_64-linux-gnu/libnccl.so.2 /usr/lib/nccl/lib/libnccl.so.2 && \
+  ln -s /usr/lib/x86_64-linux-gnu/libnccl.so.$TF_NCCL_VERSION /usr/lib/nccl/lib/libnccl.so.$TF_NCCL_VERSION
+
 # Download, build, and install TensorFlow Serving
-ARG TF_SERVING_VERSION_GIT_BRANCH=r1.8
+ARG TF_SERVING_VERSION_GIT_BRANCH=r1.7
 WORKDIR /tensorflow-serving
 RUN git clone --depth=1 --branch=${TF_SERVING_VERSION_GIT_BRANCH} \
         https://github.com/tensorflow/serving .
 
 ARG TF_SERVING_BUILD_OPTIONS="--copt=-mavx --cxxopt=-D_GLIBCXX_USE_CXX11_ABI=0"
-RUN bazel build --local_resources 5000,1.0,1.0 -c opt --color=yes --curses=yes ${TF_SERVING_BUILD_OPTIONS} \
+RUN ln -s /usr/local/cuda/lib64/stubs/libcuda.so /usr/local/cuda/lib64/stubs/libcuda.so.1 && \
+    LD_LIBRARY_PATH=/usr/local/cuda/lib64/stubs:${LD_LIBRARY_PATH} \
+    bazel build -c opt --color=yes --curses=yes --config=cuda \
     --output_filter=DONT_MATCH_ANYTHING \
+    --crosstool_top=@local_config_cuda//crosstool:toolchain \
+    ${TF_SERVING_BUILD_OPTIONS} \
     tensorflow_serving/model_servers:tensorflow_model_server && \
     cp bazel-bin/tensorflow_serving/model_servers/tensorflow_model_server /usr/local/bin/ && \
-    bazel clean --expunge --color=yes && \
-    rm -rf /root/.cache
+    rm /usr/local/cuda/lib64/stubs/libcuda.so.1 && \
+    bazel clean --expunge --color=yes
 # Clean up Bazel cache when done.
 
 #CMD ["/bin/bash"]
-
