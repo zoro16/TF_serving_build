@@ -1,0 +1,51 @@
+* Steps to deploy model using TensorFlow Serve
+** Get the Dockerfiles [[https://github.com/zoro16/TF_serving_build][here]]
+** Build docker image using
+        #+BEGIN_SRC shell
+        docker build --pull -t $USER/serving -f Dockerfile.devel .
+        #+END_SRC
+** Run the docker image
+        #+BEGIN_SRC shell
+        docker run --name=inception_container -it $USER/serving
+        #+END_SRC
+** From inside the docker container build the TensorFlow Serving example code
+        #+BEGIN_SRC shell
+        bazel build --local_resources 5000,1.0,1.0 -c opt tensorflow_serving/...
+        #+END_SRC
+** Build a ModelServer binary
+        #+BEGIN_SRC shell
+        bazel build --local_resources 5000,1.0,1.0 -c opt tensorflow_serving/model_servers:tensorflow_model_server
+        #+END_SRC
+** Run /inception_saved_model.py/ to export the inception model using the released Inception model training checkpoint.
+        #+BEGIN_SRC shell
+        curl -O http://download.tensorflow.org/models/image/imagenet/inception-v3-2016-03-01.tar.gz && \
+            tar xzf inception-v3-2016-03-01.tar.gz && rm *.gz
+        #+END_SRC
+        #+BEGIN_SRC shell
+        bazel-bin/tensorflow_serving/example/inception_saved_model --checkpoint_dir=inception-v3 \
+            --output_dir=/tmp/inception-export && ls /tmp/inception-export
+        #+END_SRC
+        Press /[Ctrl-p] + [Ctrl-q]/ to get out of the docker container
+** Commit image for deployment
+        #+BEGIN_SRC shell
+        docker commit inception_container $USER/inception_serving
+        #+END_SRC
+        #+BEGIN_SRC shell
+        docker stop inception_container
+        #+END_SRC
+** Run the newly created docker image
+        #+BEGIN_SRC shell
+        docker run -it $USER/inception_serving
+        #+END_SRC
+** Start the gRPC server
+        #+BEGIN_SRC shell
+        bazel-bin/tensorflow_serving/model_servers/tensorflow_model_server --port=9000 \
+            --model_name=inception --model_base_path=/tmp/inception-export &> inception_log &
+        #+END_SRC
+** Query the server with /inception_client.py/
+   The client sends an image specified by the command line
+   parameter to the server over gRPC for classification into human
+   readable descriptions of the ImageNet categories.
+   #+BEGIN_SRC shell
+   bazel-bin/tensorflow_serving/example/inception_client --server=localhost:9000 --image=/path/to/my_cat_image.jpg
+   #+END_SRC
